@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+
+SESSION="myomnara"
+PORT=7681
+
+echo ""
+echo "Welcome to MyOmnara — AI Agent Launcher"
+echo ""
+
+echo "Choose which agent to run:"
+echo "1) codex"
+echo "2) claude"
+echo "3) other"
+
+read -p "Enter choice [1-3]: " choice
+
+case $choice in
+  1) AGENT_CMD="codex" ;;
+  2) AGENT_CMD="claude" ;;
+  3) read -p "Enter custom agent command: " AGENT_CMD ;;
+  *) echo "Invalid choice"; exit 1 ;;
+esac
+
+if ! command -v "$AGENT_CMD" >/dev/null 2>&1; then
+  echo "Agent '$AGENT_CMD' not found! Install or add to PATH"
+  exit 1
+fi
+
+echo ""
+echo "Starting agent '$AGENT_CMD' in tmux session..."
+
+tmux has-session -t "$SESSION" 2>/dev/null || \
+  tmux new-session -d -s "$SESSION" "$AGENT_CMD"
+
+echo "Launching ttyd web terminal on http://localhost:$PORT..."
+
+ttyd -p "$PORT" tmux attach -t "$SESSION"
+
