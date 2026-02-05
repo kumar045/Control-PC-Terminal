@@ -5,7 +5,7 @@ A simple CLI tool to run local AI agents with a web terminal using tmux + ttyd.
 ## 🚀 Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/kumar045/Control-PC-Terminal-
+curl -fsSL https://raw.githubusercontent.com/kumar045/Control-PC-Terminal
 /main/install.sh | bash
 ```
 🧠 Usage
