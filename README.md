@@ -25,3 +25,7 @@ Start the selected agent in a tmux session
 Expose it over a web browser via ttyd
 
 Open at http://localhost:7681
+
+If you opt-in to public access, Control-Terminal will download `cloudflared`
+automatically (Linux only), start a Cloudflare Tunnel, and print a
+`trycloudflare.com` URL that you can share.

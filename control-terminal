@@ -2,6 +2,43 @@
 
 SESSION="control-terminal"
 PORT=7681
+CLOUDFLARED_LOG=""
+CLOUDFLARED_PID=""
+CLOUDFLARED_BIN="cloudflared"
+INSTALL_DIR="$HOME/.control-terminal/bin"
+
+install_cloudflared() {
+  local os arch download_url target_bin
+  os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  arch="$(uname -m)"
+  target_bin="$INSTALL_DIR/cloudflared"
+
+  if [ "$os" != "linux" ]; then
+    echo "Automatic cloudflared install is only supported on Linux."
+    return 1
+  fi
+
+  case "$arch" in
+    x86_64|amd64) arch="amd64" ;;
+    aarch64|arm64) arch="arm64" ;;
+    *)
+      echo "Unsupported architecture for automatic cloudflared install: $arch"
+      return 1
+      ;;
+  esac
+
+  download_url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$arch"
+
+  mkdir -p "$INSTALL_DIR"
+  if ! curl -fsSL "$download_url" -o "$target_bin"; then
+    echo "Failed to download cloudflared from $download_url"
+    return 1
+  fi
+
+  chmod +x "$target_bin"
+  CLOUDFLARED_BIN="$target_bin"
+  return 0
+}
 
 echo ""
 echo "Welcome to Control-Terminal — AI Agent Launcher"
@@ -27,11 +64,52 @@ if ! command -v "$AGENT_CMD" >/dev/null 2>&1; then
 fi
 
 echo ""
+read -p "Expose terminal on a public address via Cloudflare Tunnel? (y/N): " expose_public
+
+cleanup() {
+  if [ -n "$CLOUDFLARED_PID" ]; then
+    kill "$CLOUDFLARED_PID" >/dev/null 2>&1 || true
+  fi
+  if [ -n "$CLOUDFLARED_LOG" ] && [ -f "$CLOUDFLARED_LOG" ]; then
+    rm -f "$CLOUDFLARED_LOG"
+  fi
+}
+
+trap cleanup EXIT
+
+echo ""
 echo "Starting agent '$AGENT_CMD' in tmux session..."
 
 tmux has-session -t "$SESSION" 2>/dev/null || \
   tmux new-session -d -s "$SESSION" "$AGENT_CMD"
 
 echo "Launching ttyd web terminal on http://localhost:$PORT..."
+
+if [[ "$expose_public" =~ ^[Yy]$ ]]; then
+  if ! command -v "$CLOUDFLARED_BIN" >/dev/null 2>&1; then
+    echo "cloudflared not found. Installing..."
+    if ! install_cloudflared; then
+      echo "Unable to install cloudflared automatically."
+    fi
+  fi
+
+  if command -v "$CLOUDFLARED_BIN" >/dev/null 2>&1; then
+    CLOUDFLARED_LOG="$(mktemp -t control-terminal-cloudflared.XXXXXX.log)"
+    "$CLOUDFLARED_BIN" tunnel --url "http://localhost:$PORT" --no-autoupdate >"$CLOUDFLARED_LOG" 2>&1 &
+    CLOUDFLARED_PID=$!
+    for _ in {1..20}; do
+      PUBLIC_URL=$(grep -Eo "https://[a-zA-Z0-9.-]+\\.trycloudflare\\.com" "$CLOUDFLARED_LOG" | head -n 1 || true)
+      if [ -n "$PUBLIC_URL" ]; then
+        echo "Public URL: $PUBLIC_URL"
+        break
+      fi
+      sleep 0.5
+    done
+    if [ -z "$PUBLIC_URL" ]; then
+      echo "Cloudflare Tunnel started, but public URL not detected yet."
+      echo "Check logs at: $CLOUDFLARED_LOG"
+    fi
+  fi
+fi
 
 ttyd -p "$PORT" tmux attach -t "$SESSION"
