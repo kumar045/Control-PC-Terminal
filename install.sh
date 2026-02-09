@@ -2,10 +2,15 @@
 set -e
 
 # ========================================
-# Installer for MyOmnara CLI
+# Installer for Control-Terminal CLI
 # ========================================
 
 echo "Installing dependencies..."
+
+# Resolve script directory (may be empty if piped from curl)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-./}")" && pwd 2>/dev/null || true)"
+CONTROL_TERMINAL_SRC="${SCRIPT_DIR}/control-terminal"
+CONTROL_TERMINAL_TMP=""
 
 # Install tmux if not present
 if ! command -v tmux >/dev/null 2>&1; then
@@ -24,7 +29,7 @@ fi
 # Install ttyd if not present
 if ! command -v ttyd >/dev/null 2>&1; then
   echo "Installing ttyd..."
-  mkdir -p "$HOME/.myomnara/bin"
+  mkdir -p "$HOME/.control-terminal/bin"
   OS=$(uname | tr '[:upper:]' '[:lower:]')
   ARCH=$(uname -m)
   case "$ARCH" in
@@ -36,18 +41,33 @@ if ! command -v ttyd >/dev/null 2>&1; then
             | grep '"tag_name"' | head -1 | cut -d '"' -f4)
   FILE="ttyd-${OS}-${ARCH}"
   URL="https://github.com/tsl0922/ttyd/releases/download/${LATEST}/${FILE}"
-  curl -fsSL "$URL" -o "$HOME/.myomnara/bin/ttyd"
-  chmod +x "$HOME/.myomnara/bin/ttyd"
-  export PATH="$HOME/.myomnara/bin:$PATH"
+  curl -fsSL "$URL" -o "$HOME/.control-terminal/bin/ttyd"
+  chmod +x "$HOME/.control-terminal/bin/ttyd"
+  export PATH="$HOME/.control-terminal/bin:$PATH"
+
+  # Persist PATH for future shells
+  if ! grep -qs 'export PATH="$HOME/.control-terminal/bin:$PATH"' "$HOME/.bashrc" 2>/dev/null; then
+    echo 'export PATH="$HOME/.control-terminal/bin:$PATH"' >> "$HOME/.bashrc"
+  fi
 else
   echo "ttyd already installed"
 fi
 
-# Install myomnara CLI
-echo "Installing myomnara CLI..."
-sudo cp myomnara /usr/local/bin/
-sudo chmod +x /usr/local/bin/myomnara
+# Install control-terminal CLI
+echo "Installing control-terminal CLI..."
+if [ ! -f "$CONTROL_TERMINAL_SRC" ]; then
+  echo "control-terminal script not found locally. Downloading..."
+  CONTROL_TERMINAL_TMP="$(mktemp)"
+  curl -fsSL "https://raw.githubusercontent.com/kumar045/Control-PC-Terminal/main/control-terminal" -o "$CONTROL_TERMINAL_TMP"
+  CONTROL_TERMINAL_SRC="$CONTROL_TERMINAL_TMP"
+fi
+
+sudo cp "$CONTROL_TERMINAL_SRC" /usr/local/bin/control-terminal
+sudo chmod +x /usr/local/bin/control-terminal
+if [ -n "$CONTROL_TERMINAL_TMP" ] && [ -f "$CONTROL_TERMINAL_TMP" ]; then
+  rm -f "$CONTROL_TERMINAL_TMP"
+fi
 
 echo ""
 echo "Installation complete!"
-echo "Run: myomnara"
+echo "Run: control-terminal"

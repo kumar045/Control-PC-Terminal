@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-SESSION="myomnara"
+SESSION="control-terminal"
 PORT=7681
 
 echo ""
-echo "Welcome to MyOmnara — AI Agent Launcher"
+echo "Welcome to Control-Terminal — AI Agent Launcher"
 echo ""
 
 echo "Choose which agent to run:"
@@ -35,4 +35,3 @@ tmux has-session -t "$SESSION" 2>/dev/null || \
 echo "Launching ttyd web terminal on http://localhost:$PORT..."
 
 ttyd -p "$PORT" tmux attach -t "$SESSION"
-
