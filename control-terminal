@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
+set -e
 
 SESSION="control-terminal"
 PORT=7681
-CLOUDFLARED_LOG=""
-CLOUDFLARED_PID=""
-CLOUDFLARED_BIN="cloudflared"
 INSTALL_DIR="$HOME/.control-terminal/bin"
 
+CLOUDFLARED_BIN="cloudflared"
+CLOUDFLARED_PID=""
+CLOUDFLARED_LOG=""
+
+# ----------------------------------------
+# Cloudflared installer
+# ----------------------------------------
 install_cloudflared() {
   local os arch download_url target_bin
   os="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -22,7 +27,7 @@ install_cloudflared() {
     x86_64|amd64) arch="amd64" ;;
     aarch64|arm64) arch="arm64" ;;
     *)
-      echo "Unsupported architecture for automatic cloudflared install: $arch"
+      echo "Unsupported architecture: $arch"
       return 1
       ;;
   esac
@@ -30,42 +35,40 @@ install_cloudflared() {
   download_url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$arch"
 
   mkdir -p "$INSTALL_DIR"
-  if ! curl -fsSL "$download_url" -o "$target_bin"; then
-    echo "Failed to download cloudflared from $download_url"
-    return 1
-  fi
 
+  echo "Downloading cloudflared..."
+  curl -fL "$download_url" -o "$target_bin"
   chmod +x "$target_bin"
+
   CLOUDFLARED_BIN="$target_bin"
-  return 0
 }
 
-echo ""
-echo "Welcome to Control-Terminal — AI Agent Launcher"
-echo ""
+# ----------------------------------------
+# Agent auto-detection
+# ----------------------------------------
+detect_codex() {
+  for cmd in codex openai-codex codex-cli codex-agent; do
+    if command -v "$cmd" >/dev/null 2>&1; then
+      echo "$cmd"
+      return 0
+    fi
+  done
+  return 1
+}
 
-echo "Choose which agent to run:"
-echo "1) codex"
-echo "2) claude"
-echo "3) other"
+detect_claude() {
+  for cmd in claude claude-cli anthropic; do
+    if command -v "$cmd" >/dev/null 2>&1; then
+      echo "$cmd"
+      return 0
+    fi
+  done
+  return 1
+}
 
-read -p "Enter choice [1-3]: " choice
-
-case $choice in
-  1) AGENT_CMD="codex" ;;
-  2) AGENT_CMD="claude" ;;
-  3) read -p "Enter custom agent command: " AGENT_CMD ;;
-  *) echo "Invalid choice"; exit 1 ;;
-esac
-
-if ! command -v "$AGENT_CMD" >/dev/null 2>&1; then
-  echo "Agent '$AGENT_CMD' not found! Install or add to PATH"
-  exit 1
-fi
-
-echo ""
-read -p "Expose terminal on a public address via Cloudflare Tunnel? (y/N): " expose_public
-
+# ----------------------------------------
+# Cleanup
+# ----------------------------------------
 cleanup() {
   if [ -n "$CLOUDFLARED_PID" ]; then
     kill "$CLOUDFLARED_PID" >/dev/null 2>&1 || true
@@ -74,42 +77,102 @@ cleanup() {
     rm -f "$CLOUDFLARED_LOG"
   fi
 }
-
 trap cleanup EXIT
 
+# ----------------------------------------
+# UI
+# ----------------------------------------
+echo ""
+echo "Welcome to Control-Terminal — AI Agent Launcher"
+echo ""
+
+CODEX_BIN="$(detect_codex 2>/dev/null || true)"
+CLAUDE_BIN="$(detect_claude 2>/dev/null || true)"
+
+echo "Choose which agent to run:"
+echo "1) codex   ${CODEX_BIN:+($CODEX_BIN)}${CODEX_BIN:- (not installed)}"
+echo "2) claude  ${CLAUDE_BIN:+($CLAUDE_BIN)}${CLAUDE_BIN:- (not installed)}"
+echo "3) other"
+
+read -p "Enter choice [1-3]: " choice
+
+case "$choice" in
+  1)
+    if [ -z "$CODEX_BIN" ]; then
+      echo "❌ Codex not found in PATH."
+      exit 1
+    fi
+    AGENT_CMD="$CODEX_BIN"
+    ;;
+  2)
+    if [ -z "$CLAUDE_BIN" ]; then
+      echo "❌ Claude not found in PATH."
+      exit 1
+    fi
+    AGENT_CMD="$CLAUDE_BIN"
+    ;;
+  3)
+    read -p "Enter custom agent command: " AGENT_CMD
+    if ! command -v "$AGENT_CMD" >/dev/null 2>&1; then
+      echo "❌ Command '$AGENT_CMD' not found"
+      exit 1
+    fi
+    ;;
+  *)
+    echo "Invalid choice"
+    exit 1
+    ;;
+esac
+
+echo ""
+read -p "Expose terminal on a public address via Cloudflare Tunnel? (y/N): " expose_public
+
+# ----------------------------------------
+# Start tmux session
+# ----------------------------------------
 echo ""
 echo "Starting agent '$AGENT_CMD' in tmux session..."
 
 tmux has-session -t "$SESSION" 2>/dev/null || \
   tmux new-session -d -s "$SESSION" "$AGENT_CMD"
 
-echo "Launching ttyd web terminal on http://localhost:$PORT..."
-
+# ----------------------------------------
+# Cloudflare Tunnel
+# ----------------------------------------
 if [[ "$expose_public" =~ ^[Yy]$ ]]; then
   if ! command -v "$CLOUDFLARED_BIN" >/dev/null 2>&1; then
     echo "cloudflared not found. Installing..."
-    if ! install_cloudflared; then
-      echo "Unable to install cloudflared automatically."
-    fi
+    install_cloudflared || echo "⚠️ Cloudflared install failed"
   fi
 
   if command -v "$CLOUDFLARED_BIN" >/dev/null 2>&1; then
     CLOUDFLARED_LOG="$(mktemp -t control-terminal-cloudflared.XXXXXX.log)"
-    "$CLOUDFLARED_BIN" tunnel --url "http://localhost:$PORT" --no-autoupdate >"$CLOUDFLARED_LOG" 2>&1 &
+    "$CLOUDFLARED_BIN" tunnel --url "http://localhost:$PORT" --no-autoupdate \
+      >"$CLOUDFLARED_LOG" 2>&1 &
     CLOUDFLARED_PID=$!
-    for _ in {1..20}; do
-      PUBLIC_URL=$(grep -Eo "https://[a-zA-Z0-9.-]+\\.trycloudflare\\.com" "$CLOUDFLARED_LOG" | head -n 1 || true)
+
+    for _ in {1..30}; do
+      PUBLIC_URL="$(grep -Eo 'https://[a-zA-Z0-9.-]+\.trycloudflare\.com' "$CLOUDFLARED_LOG" | head -n 1 || true)"
       if [ -n "$PUBLIC_URL" ]; then
-        echo "Public URL: $PUBLIC_URL"
+        echo "🌍 Public URL: $PUBLIC_URL"
         break
       fi
       sleep 0.5
     done
+
     if [ -z "$PUBLIC_URL" ]; then
-      echo "Cloudflare Tunnel started, but public URL not detected yet."
-      echo "Check logs at: $CLOUDFLARED_LOG"
+      echo "⚠️ Tunnel started, but URL not detected yet"
+      echo "Check logs: $CLOUDFLARED_LOG"
     fi
   fi
 fi
 
-ttyd -p "$PORT" tmux attach -t "$SESSION"
+# ----------------------------------------
+# ttyd
+# ----------------------------------------
+echo ""
+echo "Launching ttyd web terminal on:"
+echo "👉 http://localhost:$PORT"
+echo ""
+
+exec ttyd -p "$PORT" tmux attach -t "$SESSION"
