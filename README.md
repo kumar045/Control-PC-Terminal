@@ -2,6 +2,8 @@
 
 A simple CLI tool to run local AI agents with a web terminal using tmux + ttyd.
 
+Control-Terminal lets you control AI agents like Claude Code, Codex, or any custom CLI agent running on your system from anywhere—especially from your mobile phone.
+
 ## 🚀 Install
 
 ```bash
@@ -28,6 +30,8 @@ After selecting, Control-Terminal will:
 - Expose it over a web browser via ttyd
 - Keep the browser terminal in read/write mode so you can type commands remotely
 - Open at `http://localhost:7681`
+
+This makes it easy to manage long-running agent tasks from another device while away from your desk.
 
 If `ttyd` is not installed, Control-Terminal now attempts to install the latest ttyd release automatically (Linux only).
 
