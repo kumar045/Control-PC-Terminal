@@ -4,6 +4,50 @@ A simple CLI tool to run local AI agents with a web terminal using tmux + ttyd.
 
 Control-Terminal lets you control AI agents like Claude Code, Codex, or any custom CLI agent running on your system from anywhere—especially from your mobile phone.
 
+Because your agent runs inside `tmux`, your work keeps running even if your mobile/browser connection drops, so you can reconnect without losing progress.
+
+## ✨ Why Control-Terminal is special
+
+Control-Terminal is not just a web terminal launcher. It combines three proven tools into one smooth workflow for AI-agent sessions from mobile:
+
+- **`tmux` = session persistence**
+  - Your Claude/Codex job keeps running on your machine even if your phone browser disconnects, screen locks, or network changes.
+  - You can reconnect anytime and continue the same live session.
+- **`ttyd` = browser access to that same terminal**
+  - It turns your terminal into a web UI you can open from mobile.
+  - You can interact with the exact tmux session, not a separate shell.
+- **`cloudflared` (optional) = easy remote/public access**
+  - It gives you a shareable URL quickly, without manual router/NAT setup.
+
+The result: **uninterrupted agent workflows from mobile with minimal setup**.
+
+## 🧩 Why use both `tmux` and `ttyd`?
+
+They solve different problems and work best together:
+
+- `tmux` keeps processes alive and recoverable.
+- `ttyd` provides remote browser input/output.
+
+If you use only `ttyd` without `tmux`, your long-running agent process is more fragile when sessions reset.
+If you use only `tmux` without `ttyd`, you still need SSH client tooling on mobile and a less convenient browser experience.
+
+So the pair gives you both:
+
+1. **durability** (`tmux`), and
+2. **accessibility** (`ttyd`).
+
+## ☁️ Why `cloudflared` instead of ngrok or others?
+
+Control-Terminal uses `cloudflared` because it fits this use case well:
+
+- **Simple onboarding**: one command flow, no custom reverse-proxy setup required.
+- **Good tunnel stability** for long-lived terminal sessions.
+- **Quick shareable URL** generation for remote/mobile access.
+- **Works well as optional mode**: local-only usage still works at `localhost:7681`.
+
+Other options like ngrok, Tailscale, WireGuard, or self-hosted reverse proxies are valid too. 
+This project chooses `cloudflared` by default for a practical balance of speed, usability, and fewer setup steps for most users. 
+
 ## 🚀 Install
 
 ```bash
@@ -36,3 +80,4 @@ This makes it easy to manage long-running agent tasks from another device while 
 If `ttyd` is not installed, Control-Terminal now attempts to install the latest ttyd release automatically (Linux only).
 
 If you opt-in to public access, Control-Terminal downloads `cloudflared` automatically (Linux only), starts a Cloudflare Tunnel, and prints a `trycloudflare.com` URL that you can share.
+
