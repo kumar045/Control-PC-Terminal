@@ -97,7 +97,7 @@ if [ ! -f "$CONTROL_TERMINAL_SRC" ]; then
 fi
 
 sudo cp "$CONTROL_TERMINAL_SRC" /usr/local/bin/control-terminal
-sudo chmod +x /usr/local/bin/control-terminal
+sudo chmod 755 /usr/local/bin/control-terminal
 
 if [ -n "$CONTROL_TERMINAL_TMP" ] && [ -f "$CONTROL_TERMINAL_TMP" ]; then
   rm -f "$CONTROL_TERMINAL_TMP"
