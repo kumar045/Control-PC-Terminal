@@ -252,4 +252,4 @@ if ! command -v ttyd >/dev/null 2>&1; then
   }
 fi
 
-exec ttyd -p "$PORT" tmux attach -t "$SESSION"
+exec ttyd -W -p "$PORT" tmux attach -t "$SESSION"

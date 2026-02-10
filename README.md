@@ -26,6 +26,7 @@ After selecting, Control-Terminal will:
 
 - Start the selected agent in a tmux session
 - Expose it over a web browser via ttyd
+- Keep the browser terminal in read/write mode so you can type commands remotely
 - Open at `http://localhost:7681`
 
 If `ttyd` is not installed, Control-Terminal now attempts to install the latest ttyd release automatically (Linux only).
