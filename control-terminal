@@ -9,6 +9,29 @@ CLOUDFLARED_BIN="cloudflared"
 CLOUDFLARED_PID=""
 CLOUDFLARED_LOG=""
 
+ensure_install_dir_on_path() {
+  case ":$PATH:" in
+    *":$INSTALL_DIR:"*) ;;
+    *) export PATH="$INSTALL_DIR:$PATH" ;;
+  esac
+}
+
+download_with_retries() {
+  local url="$1"
+  local target="$2"
+  local attempts=0
+
+  while [ "$attempts" -lt 3 ]; do
+    attempts=$((attempts + 1))
+    if curl -fL --connect-timeout 10 --retry 3 --retry-delay 2 "$url" -o "$target"; then
+      return 0
+    fi
+    echo "Download failed (attempt $attempts/3): $url"
+  done
+
+  return 1
+}
+
 # ----------------------------------------
 # Cloudflared installer
 # ----------------------------------------
@@ -35,12 +58,56 @@ install_cloudflared() {
   download_url="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-$arch"
 
   mkdir -p "$INSTALL_DIR"
+  ensure_install_dir_on_path
 
   echo "Downloading cloudflared..."
-  curl -fL "$download_url" -o "$target_bin"
+  if ! download_with_retries "$download_url" "$target_bin"; then
+    echo "GitHub release download failed, trying Cloudflare package mirror..."
+    download_with_retries "https://pkg.cloudflare.com/cloudflared/cloudflared-linux-$arch" "$target_bin"
+  fi
+
   chmod +x "$target_bin"
 
   CLOUDFLARED_BIN="$target_bin"
+}
+
+install_ttyd() {
+  local os arch ttyd_file latest_tag ttyd_url target_bin
+
+  os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  arch="$(uname -m)"
+  target_bin="$INSTALL_DIR/ttyd"
+
+  if [ "$os" != "linux" ]; then
+    echo "Automatic ttyd install is only supported on Linux."
+    return 1
+  fi
+
+  case "$arch" in
+    x86_64|amd64) ttyd_file="ttyd.x86_64" ;;
+    aarch64|arm64) ttyd_file="ttyd.aarch64" ;;
+    *)
+      echo "Unsupported architecture: $arch"
+      return 1
+      ;;
+  esac
+
+  latest_tag="$(curl -fsSL https://api.github.com/repos/tsl0922/ttyd/releases/latest \
+    | awk -F'"' '/"tag_name"/ {print $4; exit}')"
+
+  if [ -z "$latest_tag" ]; then
+    echo "Could not determine latest ttyd release."
+    return 1
+  fi
+
+  ttyd_url="https://github.com/tsl0922/ttyd/releases/download/${latest_tag}/${ttyd_file}"
+
+  mkdir -p "$INSTALL_DIR"
+  ensure_install_dir_on_path
+
+  echo "Downloading ttyd ($latest_tag)..."
+  download_with_retries "$ttyd_url" "$target_bin"
+  chmod +x "$target_bin"
 }
 
 # ----------------------------------------
@@ -133,6 +200,8 @@ read -p "Expose terminal on a public address via Cloudflare Tunnel? (y/N): " exp
 echo ""
 echo "Starting agent '$AGENT_CMD' in tmux session..."
 
+ensure_install_dir_on_path
+
 tmux has-session -t "$SESSION" 2>/dev/null || \
   tmux new-session -d -s "$SESSION" "$AGENT_CMD"
 
@@ -175,4 +244,12 @@ echo "Launching ttyd web terminal on:"
 echo "👉 http://localhost:$PORT"
 echo ""
 
-exec ttyd -p "$PORT" tmux attach -t "$SESSION"
+if ! command -v ttyd >/dev/null 2>&1; then
+  echo "ttyd not found. Installing..."
+  install_ttyd || {
+    echo "❌ Failed to install ttyd. Run install.sh or install ttyd manually."
+    exit 1
+  }
+fi
+
+exec ttyd -W -p "$PORT" tmux attach -t "$SESSION"
