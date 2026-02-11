@@ -56,6 +56,11 @@ curl -fsSL https://raw.githubusercontent.com/kumar045/Control-PC-Terminal/main/i
 
 The installer downloads the `control-terminal` script and adds `~/.control-terminal/bin` to your PATH in `~/.bashrc`.
 
+## 🖥️ OS support
+
+- **Linux**: supported directly.
+- **Windows**: use **WSL (Windows Subsystem for Linux)** and run Control-Terminal inside your WSL distro.
+  
 ## 🧠 Usage
 
 ```bash
