@@ -90,3 +90,25 @@ If `ttyd` is not installed, Control-Terminal now attempts to install the latest 
 
 If you opt-in to public access, Control-Terminal downloads `cloudflared` automatically (Linux only), starts a Cloudflare Tunnel, and prints a `trycloudflare.com` URL that you can share.
 
+## 💡 Telegram remote control (implemented)
+
+Control-Terminal now supports running prompts from Telegram directly into the selected local agent session (Codex / Claude / custom) through tmux.
+
+### What is implemented
+
+- Optional Telegram setup during startup:
+  - bot token input,
+  - allowed `chat_id` allowlist.
+- Chat commands:
+  - `/help` or `/start`
+  - `/status`
+  - `/tail [n]`
+  - `/interrupt`
+  - `/prompt <text>`
+  - Plain text messages are also sent as prompts.
+- Each prompt is sent to the active tmux session and recent output is sent back to Telegram.
+- You can run in Telegram-only mode (without launching the web terminal).
+
+### Important behavior
+
+If a `control-terminal` tmux session already exists, Control-Terminal asks whether to reuse it or restart it with the newly selected agent. Restart is the default so Telegram prompts target the agent you selected in this run.
