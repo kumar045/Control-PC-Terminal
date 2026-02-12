@@ -8,6 +8,7 @@ INSTALL_DIR="$HOME/.control-terminal/bin"
 CLOUDFLARED_BIN="cloudflared"
 CLOUDFLARED_PID=""
 CLOUDFLARED_LOG=""
+TTYD_AUTH=""
 
 ensure_install_dir_on_path() {
   case ":$PATH:" in
@@ -133,6 +134,31 @@ detect_claude() {
   return 1
 }
 
+prompt_ttyd_auth() {
+  local username password
+
+  while true; do
+    read -p "Set web terminal username (leave blank to skip auth): " username
+    if [ -z "$username" ]; then
+      TTYD_AUTH=""
+      echo "ℹ️ Web terminal auth disabled."
+      return 0
+    fi
+
+    read -s -p "Set web terminal password: " password
+    echo ""
+
+    if [ -z "$password" ]; then
+      echo "Password cannot be empty when username is set. Try again."
+      continue
+    fi
+
+    TTYD_AUTH="${username}:${password}"
+    echo "✅ Web terminal auth enabled for user '$username'."
+    return 0
+  done
+}
+
 # ----------------------------------------
 # Cleanup
 # ----------------------------------------
@@ -191,8 +217,23 @@ case "$choice" in
     ;;
 esac
 
+if [ -z "$TTYD_AUTH" ]; then
+  read -p "Configure web terminal username/password now? (y/N): " set_auth_late
+  if [[ "$set_auth_late" =~ ^[Yy]$ ]]; then
+    prompt_ttyd_auth
+  fi
+fi
+
 echo ""
 read -p "Expose terminal on a public address via Cloudflare Tunnel? (y/N): " expose_public
+
+if [[ "$expose_public" =~ ^[Yy]$ ]] && [ -z "$TTYD_AUTH" ]; then
+  echo "Public URL selected. Username/password is strongly recommended."
+  read -p "Set web terminal username/password before continuing? (Y/n): " set_auth_for_public
+  if [[ ! "$set_auth_for_public" =~ ^[Nn]$ ]]; then
+    prompt_ttyd_auth
+  fi
+fi
 
 # ----------------------------------------
 # Start tmux session
@@ -252,4 +293,9 @@ if ! command -v ttyd >/dev/null 2>&1; then
   }
 fi
 
-exec ttyd -W -p "$PORT" tmux attach -t "$SESSION"
+TTYD_ARGS=(-W -p "$PORT")
+if [ -n "$TTYD_AUTH" ]; then
+  TTYD_ARGS+=(-c "$TTYD_AUTH")
+fi
+
+exec ttyd "${TTYD_ARGS[@]}" tmux attach -t "$SESSION"
