@@ -239,6 +239,26 @@ telegram_tail_output() {
   tmux capture-pane -t "$SESSION" -p | tail -n "$lines"
 }
 
+ensure_agent_accepting_prompts() {
+  local pane_cmd
+
+  if ! tmux has-session -t "$SESSION" 2>/dev/null; then
+    return 1
+  fi
+
+  pane_cmd="$(tmux display-message -p -t "$SESSION":0.0 '#{pane_current_command}' 2>/dev/null || true)"
+
+  case "$pane_cmd" in
+    bash|zsh|sh|fish)
+      tmux send-keys -t "$SESSION" -l "$AGENT_CMD"
+      tmux send-keys -t "$SESSION" C-m
+      sleep 1
+      ;;
+  esac
+
+  return 0
+}
+
 stop_telegram_stream() {
   if [ -n "$TELEGRAM_STREAM_PID" ]; then
     kill "$TELEGRAM_STREAM_PID" >/dev/null 2>&1 || true
@@ -354,6 +374,10 @@ telegram_process_message() {
         telegram_send_message "$chat_id" "Usage: /prompt your instruction"
         return 0
       fi
+      if ! ensure_agent_accepting_prompts; then
+        telegram_send_message "$chat_id" "❌ Session '$SESSION' is not running. Start control-terminal first."
+        return 0
+      fi
       tmux send-keys -t "$SESSION" -l "$prompt_text"
       tmux send-keys -t "$SESSION" C-m
       sleep 1
@@ -363,6 +387,10 @@ telegram_process_message() {
       ensure_telegram_stream_for_chat "$chat_id"
       ;;
     *)
+      if ! ensure_agent_accepting_prompts; then
+        telegram_send_message "$chat_id" "❌ Session '$SESSION' is not running. Start control-terminal first."
+        return 0
+      fi
       tmux send-keys -t "$SESSION" -l "$text"
       tmux send-keys -t "$SESSION" C-m
       sleep 1
