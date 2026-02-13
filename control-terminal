@@ -17,6 +17,34 @@ TELEGRAM_BOT_PID=""
 TELEGRAM_STREAM_PID=""
 TELEGRAM_STREAM_CHAT_ID=""
 TELEGRAM_AUTO_WATCH_SECONDS="2"
+AGENT_RUNNER_SCRIPT=""
+
+create_agent_runner_script() {
+  local escaped_agent_cmd
+  AGENT_RUNNER_SCRIPT="$(mktemp -t control-terminal-agent.XXXXXX.sh)"
+  escaped_agent_cmd="$(printf '%q' "$AGENT_CMD")"
+
+  cat > "$AGENT_RUNNER_SCRIPT" <<EOF
+#!/usr/bin/env bash
+set +e
+
+$escaped_agent_cmd
+exit_code=\$?
+
+echo ""
+echo "⚠️ Agent process exited with code \$exit_code. Keeping tmux session alive."
+echo "You can restart the agent manually in this tmux shell."
+
+exec bash -i
+EOF
+
+  chmod +x "$AGENT_RUNNER_SCRIPT"
+}
+
+start_agent_session() {
+  create_agent_runner_script
+  tmux new-session -d -s "$SESSION" "$AGENT_RUNNER_SCRIPT"
+}
 
 ensure_install_dir_on_path() {
   case ":$PATH:" in
@@ -423,6 +451,9 @@ cleanup() {
   if [ -n "$TELEGRAM_BOT_PID" ]; then
     kill "$TELEGRAM_BOT_PID" >/dev/null 2>&1 || true
   fi
+  if [ -n "$AGENT_RUNNER_SCRIPT" ] && [ -f "$AGENT_RUNNER_SCRIPT" ]; then
+    rm -f "$AGENT_RUNNER_SCRIPT"
+  fi
 }
 trap cleanup EXIT
 
@@ -514,10 +545,10 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
     echo "Reusing existing session without changing running agent command."
   else
     tmux kill-session -t "$SESSION"
-    tmux new-session -d -s "$SESSION" "$AGENT_CMD"
+    start_agent_session
   fi
 else
-  tmux new-session -d -s "$SESSION" "$AGENT_CMD"
+  start_agent_session
 fi
 
 if [ "$TELEGRAM_ENABLED" = "1" ]; then
