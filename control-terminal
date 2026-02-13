@@ -10,6 +10,14 @@ CLOUDFLARED_PID=""
 CLOUDFLARED_LOG=""
 TTYD_AUTH=""
 
+TELEGRAM_ENABLED="0"
+TELEGRAM_BOT_TOKEN=""
+TELEGRAM_ALLOWED_CHAT_ID=""
+TELEGRAM_BOT_PID=""
+TELEGRAM_STREAM_PID=""
+TELEGRAM_STREAM_CHAT_ID=""
+TELEGRAM_AUTO_WATCH_SECONDS="2"
+
 ensure_install_dir_on_path() {
   case ":$PATH:" in
     *":$INSTALL_DIR:"*) ;;
@@ -138,14 +146,14 @@ prompt_ttyd_auth() {
   local username password
 
   while true; do
-    read -p "Set web terminal username (leave blank to skip auth): " username
+    read -r -p "Set web terminal username (leave blank to skip auth): " username
     if [ -z "$username" ]; then
       TTYD_AUTH=""
       echo "ℹ️ Web terminal auth disabled."
       return 0
     fi
 
-    read -s -p "Set web terminal password: " password
+    read -r -s -p "Set web terminal password: " password
     echo ""
 
     if [ -z "$password" ]; then
@@ -159,15 +167,261 @@ prompt_ttyd_auth() {
   done
 }
 
+prompt_telegram_config() {
+  local enable_telegram
+
+  read -r -p "Enable Telegram bot control for this session? (y/N): " enable_telegram
+  if [[ ! "$enable_telegram" =~ ^[Yy]$ ]]; then
+    return 0
+  fi
+
+  read -r -p "Enter Telegram bot token (from @BotFather): " TELEGRAM_BOT_TOKEN
+  if [ -z "$TELEGRAM_BOT_TOKEN" ]; then
+    echo "⚠️ Token empty. Telegram control disabled."
+    return 0
+  fi
+
+  read -r -p "Enter allowed Telegram chat_id (required): " TELEGRAM_ALLOWED_CHAT_ID
+  if [ -z "$TELEGRAM_ALLOWED_CHAT_ID" ]; then
+    echo "⚠️ chat_id empty. Telegram control disabled."
+    TELEGRAM_BOT_TOKEN=""
+    return 0
+  fi
+
+  TELEGRAM_ENABLED="1"
+  echo "✅ Telegram control enabled for chat_id=$TELEGRAM_ALLOWED_CHAT_ID"
+}
+
+telegram_send_message() {
+  local chat_id="$1"
+  local text="$2"
+  local max_len=3800
+
+  if [ "${#text}" -gt "$max_len" ]; then
+    text="${text:0:$max_len}\n\n...(truncated)"
+  fi
+
+  curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+    --data-urlencode "chat_id=${chat_id}" \
+    --data-urlencode "text=${text}" >/dev/null || true
+}
+
+telegram_tail_output() {
+  local lines="$1"
+  tmux capture-pane -t "$SESSION" -p | tail -n "$lines"
+}
+
+stop_telegram_stream() {
+  if [ -n "$TELEGRAM_STREAM_PID" ]; then
+    kill "$TELEGRAM_STREAM_PID" >/dev/null 2>&1 || true
+    TELEGRAM_STREAM_PID=""
+    TELEGRAM_STREAM_CHAT_ID=""
+  fi
+}
+
+start_telegram_stream() {
+  local chat_id="$1"
+  local interval="$2"
+
+  (
+    local previous current
+    previous=""
+    telegram_send_message "$chat_id" "▶️ Live stream started (about every ${interval}s). Use /unwatch to stop."
+    while true; do
+      current="$(telegram_tail_output 40)"
+      [ -z "$current" ] && current="(no output yet)"
+      if [ "$current" != "$previous" ]; then
+        telegram_send_message "$chat_id" "📡 ${SESSION} live view:\n${current}"
+        previous="$current"
+      fi
+      sleep "$interval"
+    done
+  ) &
+
+  TELEGRAM_STREAM_PID=$!
+  TELEGRAM_STREAM_CHAT_ID="$chat_id"
+}
+
+ensure_telegram_stream_for_chat() {
+  local chat_id="$1"
+
+  if [ -n "$TELEGRAM_STREAM_PID" ] && kill -0 "$TELEGRAM_STREAM_PID" >/dev/null 2>&1; then
+    if [ "$TELEGRAM_STREAM_CHAT_ID" = "$chat_id" ]; then
+      return 0
+    fi
+    stop_telegram_stream
+  fi
+
+  start_telegram_stream "$chat_id" "$TELEGRAM_AUTO_WATCH_SECONDS"
+}
+
+telegram_process_message() {
+  local chat_id="$1"
+  local text="$2"
+  local response lines prompt_text
+
+  if [ "$chat_id" != "$TELEGRAM_ALLOWED_CHAT_ID" ]; then
+    telegram_send_message "$chat_id" "Unauthorized chat_id."
+    return 0
+  fi
+
+  case "$text" in
+    /start|/help)
+      response="Control-Terminal bot commands:\n/status\n/tail [n]\n/watch [seconds]\n/unwatch\n/interrupt\n/prompt <text>\nAny plain text will be sent as prompt to $SESSION."
+      telegram_send_message "$chat_id" "$response"
+      ;;
+    /status)
+      if tmux has-session -t "$SESSION" 2>/dev/null; then
+        response="✅ Session '$SESSION' is running."
+      else
+        response="❌ Session '$SESSION' is not running."
+      fi
+      telegram_send_message "$chat_id" "$response"
+      ;;
+    /interrupt)
+      tmux send-keys -t "$SESSION" C-c
+      telegram_send_message "$chat_id" "⛔ Sent Ctrl+C to session '$SESSION'."
+      ;;
+    /watch* )
+      lines="${text#"/watch"}"
+      lines="${lines// /}"
+      if [[ -z "$lines" || ! "$lines" =~ ^[0-9]+$ ]]; then
+        lines="$TELEGRAM_AUTO_WATCH_SECONDS"
+      fi
+      if [ "$lines" -lt 1 ]; then
+        lines=1
+      fi
+      if [ "$lines" -gt 10 ]; then
+        lines=10
+      fi
+
+      stop_telegram_stream
+      start_telegram_stream "$chat_id" "$lines"
+      ;;
+    /unwatch)
+      if [ -n "$TELEGRAM_STREAM_PID" ] && kill -0 "$TELEGRAM_STREAM_PID" >/dev/null 2>&1; then
+        stop_telegram_stream
+        telegram_send_message "$chat_id" "⏹️ Live stream stopped."
+      else
+        telegram_send_message "$chat_id" "ℹ️ Live stream is not running."
+      fi
+      ;;
+    /tail* )
+      lines="${text#"/tail"}"
+      lines="${lines// /}"
+      if [[ -z "$lines" || ! "$lines" =~ ^[0-9]+$ ]]; then
+        lines=40
+      fi
+      if [ "$lines" -gt 200 ]; then
+        lines=200
+      fi
+      response="$(telegram_tail_output "$lines")"
+      [ -z "$response" ] && response="(no output yet)"
+      telegram_send_message "$chat_id" "$response"
+      ;;
+    /prompt*)
+      prompt_text="${text#"/prompt"}"
+      prompt_text="${prompt_text# }"
+      if [ -z "$prompt_text" ]; then
+        telegram_send_message "$chat_id" "Usage: /prompt your instruction"
+        return 0
+      fi
+      tmux send-keys -t "$SESSION" -l "$prompt_text"
+      tmux send-keys -t "$SESSION" C-m
+      sleep 1
+      response="$(telegram_tail_output 30)"
+      [ -z "$response" ] && response="Prompt sent."
+      telegram_send_message "$chat_id" "$response"
+      ensure_telegram_stream_for_chat "$chat_id"
+      ;;
+    *)
+      tmux send-keys -t "$SESSION" -l "$text"
+      tmux send-keys -t "$SESSION" C-m
+      sleep 1
+      response="$(telegram_tail_output 30)"
+      [ -z "$response" ] && response="Prompt sent."
+      telegram_send_message "$chat_id" "$response"
+      ensure_telegram_stream_for_chat "$chat_id"
+      ;;
+  esac
+}
+
+start_telegram_bot() {
+  local api_url offset response parsed
+
+  if [ "$TELEGRAM_ENABLED" != "1" ]; then
+    return 0
+  fi
+
+  api_url="https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}"
+  offset=0
+
+  # warm-up: if the bot token is invalid, this will fail and disable bridge.
+  if ! curl -fsS "${api_url}/getMe" >/dev/null 2>&1; then
+    echo "⚠️ Telegram getMe failed. Disabling Telegram control."
+    TELEGRAM_ENABLED="0"
+    return 0
+  fi
+
+  echo "🤖 Telegram bridge is running. Send prompts to your bot from chat_id=$TELEGRAM_ALLOWED_CHAT_ID"
+
+  while true; do
+    response="$(curl -fsS "${api_url}/getUpdates?timeout=30&offset=${offset}" || true)"
+    if [ -z "$response" ]; then
+      sleep 2
+      continue
+    fi
+
+    parsed="$(python3 - "$response" <<'PY'
+import json
+import sys
+
+raw = sys.argv[1]
+try:
+    data = json.loads(raw)
+except Exception:
+    print("")
+    raise SystemExit
+
+for item in data.get("result", []):
+    uid = item.get("update_id")
+    msg = item.get("message") or {}
+    chat = (msg.get("chat") or {}).get("id")
+    text = msg.get("text")
+    if uid is None:
+      continue
+    if chat is None:
+      continue
+    if text is None:
+      text = ""
+    text = text.replace("\n", " ")
+    print(f"{uid}\t{chat}\t{text}")
+PY
+)"
+
+    [ -z "$parsed" ] && continue
+
+    while IFS=$'\t' read -r update_id chat_id text; do
+      [ -z "$update_id" ] && continue
+      offset=$((update_id + 1))
+      telegram_process_message "$chat_id" "$text"
+    done <<< "$parsed"
+  done
+}
+
 # ----------------------------------------
 # Cleanup
 # ----------------------------------------
 cleanup() {
+  stop_telegram_stream
   if [ -n "$CLOUDFLARED_PID" ]; then
     kill "$CLOUDFLARED_PID" >/dev/null 2>&1 || true
   fi
   if [ -n "$CLOUDFLARED_LOG" ] && [ -f "$CLOUDFLARED_LOG" ]; then
     rm -f "$CLOUDFLARED_LOG"
+  fi
+  if [ -n "$TELEGRAM_BOT_PID" ]; then
+    kill "$TELEGRAM_BOT_PID" >/dev/null 2>&1 || true
   fi
 }
 trap cleanup EXIT
@@ -187,7 +441,7 @@ echo "1) codex   ${CODEX_BIN:+($CODEX_BIN)}${CODEX_BIN:- (not installed)}"
 echo "2) claude  ${CLAUDE_BIN:+($CLAUDE_BIN)}${CLAUDE_BIN:- (not installed)}"
 echo "3) other"
 
-read -p "Enter choice [1-3]: " choice
+read -r -p "Enter choice [1-3]: " choice
 
 case "$choice" in
   1)
@@ -205,7 +459,7 @@ case "$choice" in
     AGENT_CMD="$CLAUDE_BIN"
     ;;
   3)
-    read -p "Enter custom agent command: " AGENT_CMD
+    read -r -p "Enter custom agent command: " AGENT_CMD
     if ! command -v "$AGENT_CMD" >/dev/null 2>&1; then
       echo "❌ Command '$AGENT_CMD' not found"
       exit 1
@@ -218,20 +472,30 @@ case "$choice" in
 esac
 
 if [ -z "$TTYD_AUTH" ]; then
-  read -p "Configure web terminal username/password now? (y/N): " set_auth_late
+  read -r -p "Configure web terminal username/password now? (y/N): " set_auth_late
   if [[ "$set_auth_late" =~ ^[Yy]$ ]]; then
     prompt_ttyd_auth
   fi
 fi
 
 echo ""
-read -p "Expose terminal on a public address via Cloudflare Tunnel? (y/N): " expose_public
+read -r -p "Expose terminal on a public address via Cloudflare Tunnel? (y/N): " expose_public
 
 if [[ "$expose_public" =~ ^[Yy]$ ]] && [ -z "$TTYD_AUTH" ]; then
   echo "Public URL selected. Username/password is strongly recommended."
-  read -p "Set web terminal username/password before continuing? (Y/n): " set_auth_for_public
+  read -r -p "Set web terminal username/password before continuing? (Y/n): " set_auth_for_public
   if [[ ! "$set_auth_for_public" =~ ^[Nn]$ ]]; then
     prompt_ttyd_auth
+  fi
+fi
+
+prompt_telegram_config
+
+LAUNCH_WEB_TERMINAL="1"
+if [ "$TELEGRAM_ENABLED" = "1" ]; then
+  read -r -p "Launch web terminal too? (Y/n): " launch_web_choice
+  if [[ "$launch_web_choice" =~ ^[Nn]$ ]]; then
+    LAUNCH_WEB_TERMINAL="0"
   fi
 fi
 
@@ -239,17 +503,32 @@ fi
 # Start tmux session
 # ----------------------------------------
 echo ""
-echo "Starting agent '$AGENT_CMD' in tmux session..."
+echo "Preparing tmux session '$SESSION' for agent '$AGENT_CMD'..."
 
 ensure_install_dir_on_path
 
-tmux has-session -t "$SESSION" 2>/dev/null || \
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+  echo "ℹ️ Session '$SESSION' already exists."
+  read -r -p "Reuse existing session (r) or restart with selected agent (R default): " session_action
+  if [[ "$session_action" =~ ^[r]$ ]]; then
+    echo "Reusing existing session without changing running agent command."
+  else
+    tmux kill-session -t "$SESSION"
+    tmux new-session -d -s "$SESSION" "$AGENT_CMD"
+  fi
+else
   tmux new-session -d -s "$SESSION" "$AGENT_CMD"
+fi
+
+if [ "$TELEGRAM_ENABLED" = "1" ]; then
+  start_telegram_bot &
+  TELEGRAM_BOT_PID=$!
+fi
 
 # ----------------------------------------
 # Cloudflare Tunnel
 # ----------------------------------------
-if [[ "$expose_public" =~ ^[Yy]$ ]]; then
+if [[ "$expose_public" =~ ^[Yy]$ ]] && [ "$LAUNCH_WEB_TERMINAL" = "1" ]; then
   if ! command -v "$CLOUDFLARED_BIN" >/dev/null 2>&1; then
     echo "cloudflared not found. Installing..."
     install_cloudflared || echo "⚠️ Cloudflared install failed"
@@ -278,24 +557,36 @@ if [[ "$expose_public" =~ ^[Yy]$ ]]; then
 fi
 
 # ----------------------------------------
-# ttyd
+# ttyd or local attach
 # ----------------------------------------
-echo ""
-echo "Launching ttyd web terminal on:"
-echo "👉 http://localhost:$PORT"
-echo ""
+if [ "$LAUNCH_WEB_TERMINAL" = "1" ]; then
+  echo ""
+  echo "Launching ttyd web terminal on:"
+  echo "👉 http://localhost:$PORT"
+  echo ""
 
-if ! command -v ttyd >/dev/null 2>&1; then
-  echo "ttyd not found. Installing..."
-  install_ttyd || {
-    echo "❌ Failed to install ttyd. Run install.sh or install ttyd manually."
-    exit 1
-  }
+  if ! command -v ttyd >/dev/null 2>&1; then
+    echo "ttyd not found. Installing..."
+    install_ttyd || {
+      echo "❌ Failed to install ttyd. Run install.sh or install ttyd manually."
+      exit 1
+    }
+  fi
+
+  TTYD_ARGS=(-W -p "$PORT")
+  if [ -n "$TTYD_AUTH" ]; then
+    TTYD_ARGS+=(-c "$TTYD_AUTH")
+  fi
+
+  exec ttyd "${TTYD_ARGS[@]}" tmux attach -t "$SESSION"
 fi
 
-TTYD_ARGS=(-W -p "$PORT")
-if [ -n "$TTYD_AUTH" ]; then
-  TTYD_ARGS+=(-c "$TTYD_AUTH")
-fi
+echo ""
+echo "ℹ️ Web terminal disabled. Telegram bridge is active for remote prompts."
+echo "   To watch locally, run: tmux attach -t $SESSION"
 
-exec ttyd "${TTYD_ARGS[@]}" tmux attach -t "$SESSION"
+if [ -n "$TELEGRAM_BOT_PID" ]; then
+  wait "$TELEGRAM_BOT_PID"
+else
+  tmux attach -t "$SESSION"
+fi
