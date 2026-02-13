@@ -239,22 +239,55 @@ telegram_tail_output() {
   tmux capture-pane -t "$SESSION" -p | tail -n "$lines"
 }
 
+is_process_descendant_matching() {
+  local root_pid="$1"
+  local expected_cmd="$2"
+  local queue current children comm
+
+  queue="$root_pid"
+  while [ -n "$queue" ]; do
+    current="${queue%% *}"
+    if [ "$queue" = "$current" ]; then
+      queue=""
+    else
+      queue="${queue#* }"
+    fi
+
+    comm="$(ps -o comm= -p "$current" 2>/dev/null | awk '{print $1}' || true)"
+    if [ "$comm" = "$expected_cmd" ]; then
+      return 0
+    fi
+
+    children="$(pgrep -P "$current" 2>/dev/null | paste -sd' ' - || true)"
+    if [ -n "$children" ]; then
+      if [ -n "$queue" ]; then
+        queue="$queue $children"
+      else
+        queue="$children"
+      fi
+    fi
+  done
+
+  return 1
+}
+
 ensure_agent_accepting_prompts() {
-  local pane_cmd
+  local pane_pid agent_cmd_basename
 
   if ! tmux has-session -t "$SESSION" 2>/dev/null; then
     return 1
   fi
 
-  pane_cmd="$(tmux display-message -p -t "$SESSION":0.0 '#{pane_current_command}' 2>/dev/null || true)"
+  pane_pid="$(tmux display-message -p -t "$SESSION":0.0 '#{pane_pid}' 2>/dev/null || true)"
+  agent_cmd_basename="$(basename "$AGENT_CMD")"
 
-  case "$pane_cmd" in
-    bash|zsh|sh|fish)
-      tmux send-keys -t "$SESSION" -l "$AGENT_CMD"
-      tmux send-keys -t "$SESSION" C-m
-      sleep 1
-      ;;
-  esac
+  if [ -n "$pane_pid" ] && is_process_descendant_matching "$pane_pid" "$agent_cmd_basename"; then
+    return 0
+  fi
+
+  tmux send-keys -t "$SESSION" -l "$AGENT_CMD"
+  tmux send-keys -t "$SESSION" C-m
+  sleep 1
 
   return 0
 }
