@@ -403,12 +403,19 @@ telegram_process_message() {
         return 0
       fi
       # Send the text
+      # --- START OF FIX ---
+      # 1. Type the prompt text
       tmux send-keys -t "$SESSION" -l "$prompt_text"
-      # Wait 0.2 seconds to let the CLI register the keystrokes
-      sleep 0.2
-      # Send Enter
-      tmux send-keys -t "$SESSION" C-m
-      sleep 1
+      
+      # 2. Wait 0.5s for text to register
+      sleep 0.5
+      
+      # 3. Press Enter explicitly
+      tmux send-keys -t "$SESSION" Enter
+      
+      # 4. Wait 3s for the agent to start generating a response
+      sleep 3
+      # --- END OF FIX ---
       response="$(telegram_tail_output 30)"
       [ -z "$response" ] && response="Prompt sent."
       telegram_send_message "$chat_id" "$response"
