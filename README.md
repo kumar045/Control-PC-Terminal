@@ -100,13 +100,20 @@ Control-Terminal now supports running prompts from Telegram directly into the se
   - bot token input,
   - allowed `chat_id` allowlist.
 - Chat commands:
-  - `/help` or `/start`
-  - `/status`
-  - `/tail [n]`
-  - `/watch [seconds]` (near real-time updates)
-  - `/unwatch`
-  - `/interrupt`
-  - `/prompt <text>`
+  - `/help` or `/start` — show the command list and basic usage.
+  - `/status` — show whether the target tmux session is running.
+  - `/tail [n]` — return the latest terminal output lines (default count if `n` is omitted).
+  - `/watch [seconds]` — start near real-time output updates at the given interval.
+  - `/unwatch` — stop live output updates for the chat.
+  - `/interrupt` — send `Ctrl+C` to the running process in the tmux session.
+  - `/clear` — clear the terminal screen in the tmux session.
+  - `/up` — send the Up arrow key (useful for command history navigation).
+  - `/down` — send the Down arrow key.
+  - `/enter` — send the Enter key.
+  - `/esc` — send the Escape key.
+  - `/yes` — send `y` followed by Enter (quick confirmation helper).
+  - `/no` — send `n` followed by Enter (quick rejection helper).
+  - `/prompt <text>` — send a full prompt/instruction to the active agent session.
   - Plain text messages are also sent as prompts.
 - Each prompt is sent to the active tmux session and recent output is sent back to Telegram.
 - After `/prompt` or plain text messages, live watch now auto-starts for that chat (2s interval) so you continue getting near real-time updates automatically.
