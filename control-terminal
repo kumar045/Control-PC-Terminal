@@ -362,6 +362,31 @@ telegram_process_message() {
       tmux send-keys -t "$SESSION" C-l
       telegram_send_message "$chat_id" "🧹 Terminal cleared."
       ;;
+    /up)
+      tmux send-keys -t "$SESSION" Up
+      telegram_send_message "$chat_id" "⬆️ Sent Up arrow."
+      ;;
+    /down)
+      tmux send-keys -t "$SESSION" Down
+      telegram_send_message "$chat_id" "⬇️ Sent Down arrow."
+      ;;
+    /enter)
+      tmux send-keys -t "$SESSION" Enter
+      telegram_send_message "$chat_id" "✅ Sent Enter."
+      ;;
+    /esc)
+      tmux send-keys -t "$SESSION" Escape
+      telegram_send_message "$chat_id" "🚫 Sent Escape."
+      ;;
+    /yes)
+      # Handy for confirmation prompts (Y/n)
+      tmux send-keys -t "$SESSION" "y" Enter
+      telegram_send_message "$chat_id" "👍 Sent 'y'."
+      ;;
+    /no)
+      tmux send-keys -t "$SESSION" "n" Enter
+      telegram_send_message "$chat_id" "👎 Sent 'n'."
+      ;;
     /watch* )
       lines="${text#"/watch"}"
       lines="${lines// /}"
