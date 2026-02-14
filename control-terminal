@@ -339,7 +339,8 @@ telegram_process_message() {
 
   case "$text" in
     /start|/help)
-      response="Control-Terminal bot commands:\n/status\n/tail [n]\n/watch [seconds]\n/unwatch\n/interrupt\n/prompt <text>\nAny plain text will be sent as prompt to $SESSION."
+      # use printf to interpret the \n as real new lines
+      response="$(printf "Control-Terminal bot commands:\n/status\n/tail [n]\n/watch [seconds]\n/unwatch\n/interrupt\n/prompt <text>\nAny plain text will be sent as prompt to %s." "$SESSION")"
       telegram_send_message "$chat_id" "$response"
       ;;
     /status)
