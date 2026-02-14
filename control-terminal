@@ -272,35 +272,14 @@ is_process_descendant_matching() {
 }
 
 ensure_agent_accepting_prompts() {
-  local pane_pid agent_cmd_basename
-  local known_agents running_agent
-
+  # 1. Simple check: Does the tmux session exist?
   if ! tmux has-session -t "$SESSION" 2>/dev/null; then
     return 1
   fi
-
-  pane_pid="$(tmux display-message -p -t "$SESSION":0.0 '#{pane_pid}' 2>/dev/null || true)"
-  agent_cmd_basename="$(basename "$AGENT_CMD")"
-  known_agents="codex claude"
-
-  if [ -n "$pane_pid" ] && is_process_descendant_matching "$pane_pid" "$agent_cmd_basename"; then
-    return 0
-  fi
-
-  if [ -n "$pane_pid" ]; then
-    for running_agent in $known_agents; do
-      if [ "$running_agent" != "$agent_cmd_basename" ] && is_process_descendant_matching "$pane_pid" "$running_agent"; then
-        tmux send-keys -t "$SESSION" C-c
-        sleep 1
-        break
-      fi
-    done
-  fi
-
-  tmux send-keys -t "$SESSION" -l "$AGENT_CMD"
-  tmux send-keys -t "$SESSION" C-m
-  sleep 1
-
+  
+  # REMOVED: The complex PID detection logic that was causing the restart loop.
+  # We assume if the session exists, the agent is there (or the runner script is handling it).
+  
   return 0
 }
 
@@ -423,7 +402,11 @@ telegram_process_message() {
         telegram_send_message "$chat_id" "❌ Session '$SESSION' is not running. Start control-terminal first."
         return 0
       fi
+      # Send the text
       tmux send-keys -t "$SESSION" -l "$prompt_text"
+      # Wait 0.2 seconds to let the CLI register the keystrokes
+      sleep 0.2
+      # Send Enter
       tmux send-keys -t "$SESSION" C-m
       sleep 1
       response="$(telegram_tail_output 30)"
