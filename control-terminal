@@ -419,9 +419,17 @@ telegram_process_message() {
         telegram_send_message "$chat_id" "❌ Session '$SESSION' is not running. Start control-terminal first."
         return 0
       fi
+      # Send the text
       tmux send-keys -t "$SESSION" -l "$text"
-      tmux send-keys -t "$SESSION" C-m
-      sleep 1
+      
+      # Wait for the terminal to register the text
+      sleep 0.5
+      
+      # Send the ENTER key explicitly
+      tmux send-keys -t "$SESSION" Enter
+      
+      # Wait longer for the AI to actually generate a response before capturing output
+      sleep 3
       response="$(telegram_tail_output 30)"
       [ -z "$response" ] && response="Prompt sent."
       telegram_send_message "$chat_id" "$response"
