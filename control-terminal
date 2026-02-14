@@ -236,7 +236,8 @@ telegram_send_message() {
 
 telegram_tail_output() {
   local lines="$1"
-  tmux capture-pane -t "$SESSION" -p | tail -n "$lines"
+  # The sed command removes ANSI color codes so Telegram gets clean text
+  tmux capture-pane -t "$SESSION" -p | tail -n "$lines" | sed -r 's/\x1B\[[0-9;]*[JKmsu]//g'
 }
 
 is_process_descendant_matching() {
