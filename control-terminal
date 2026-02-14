@@ -343,7 +343,7 @@ telegram_process_message() {
   case "$text" in
     /start|/help)
       # use printf to interpret the \n as real new lines
-      response="$(printf "Control-Terminal bot commands:\n/status\n/tail [n]\n/watch [seconds]\n/unwatch\n/interrupt\n/prompt <text>\nAny plain text will be sent as prompt to %s." "$SESSION")"
+      response="$(printf "Control-Terminal bot commands:\n/status\n/tail [n]\n/watch [seconds]\n/unwatch\n/interrupt\n/clear\n/prompt <text>\nAny plain text will be sent as prompt to %s." "$SESSION")"
       telegram_send_message "$chat_id" "$response"
       ;;
     /status)
@@ -357,6 +357,10 @@ telegram_process_message() {
     /interrupt)
       tmux send-keys -t "$SESSION" C-c
       telegram_send_message "$chat_id" "⛔ Sent Ctrl+C to session '$SESSION'."
+      ;;
+    /clear)
+      tmux send-keys -t "$SESSION" C-l
+      telegram_send_message "$chat_id" "🧹 Terminal cleared."
       ;;
     /watch* )
       lines="${text#"/watch"}"
