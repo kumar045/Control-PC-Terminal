@@ -226,7 +226,7 @@ telegram_send_message() {
   local max_len=3800
 
   if [ "${#text}" -gt "$max_len" ]; then
-    text="${text:0:$max_len}\n\n...(truncated)"
+    text="${text:0:$max_len}"$'\n\n...(truncated)'
   fi
 
   curl -fsS -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
@@ -303,7 +303,9 @@ start_telegram_stream() {
       current="$(telegram_tail_output 40)"
       [ -z "$current" ] && current="(no output yet)"
       if [ "$current" != "$previous" ]; then
-        telegram_send_message "$chat_id" "📡 ${SESSION} live view:\n${current}"
+        local msg
+        msg="$(printf "📡 %s live view:\n%s" "$SESSION" "$current")"
+        telegram_send_message "$chat_id" "$msg"
         previous="$current"
       fi
       sleep "$interval"
