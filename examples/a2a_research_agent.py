@@ -6,6 +6,7 @@ from google.adk.agents.llm_agent import LlmAgent
 from google.adk.tools import google_search
 
 from helpers import setup_env
+from skill_registry import build_instruction_block
 
 setup_env()
 
@@ -14,13 +15,21 @@ HOST = os.getenv("AGENT_HOST")
 
 
 def main() -> None:
+    skill_instruction_block = build_instruction_block("research")
+
     # Create the Agent
     root_agent = LlmAgent(
         model="gemini-3-pro-preview",
         name="HealthResearchAgent",
         tools=[google_search],
         description="Provides healthcare information about symptoms, health conditions, treatments, and procedures using up-to-date web resources.",
-        instruction="You are a healthcare research agent tasked with providing information about health conditions. Use the google_search tool to find information on the web about options, symptoms, treatments, and procedures. Cite your sources in your responses. Output all of the information you find.",
+        instruction=(
+            "You are a healthcare research agent tasked with providing information about "
+            "health conditions. Use the google_search tool to find information on the web "
+            "about options, symptoms, treatments, and procedures. Cite your sources in your "
+            "responses. Output all of the information you find.\n\n"
+            f"{skill_instruction_block}"
+        ),
     )
 
     # Make the agent A2A-compatible

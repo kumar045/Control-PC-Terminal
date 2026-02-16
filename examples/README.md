@@ -41,6 +41,18 @@ a2a-adk-mcp-example|python3 /absolute/path/to/Control-PC-Terminal/examples/a2a_a
 
 Now select **preconfigured custom agent** in `control-terminal` and choose `a2a-adk-mcp-example`.
 
+### Automatic skills attachment in examples
+
+The example agents now auto-attach role skills loaded from `examples/skills/*/SKILL.md` (via `examples/skill_registry.py`) at startup:
+
+- `a2a_policy_agent.py` -> `policy` skills
+- `a2a_research_agent.py` -> `research` skills
+- `a2a_provider_agent.py` -> `provider` skills
+- `a2a_healthcare_agent.py` -> `healthcare` skills
+
+This behavior is intentionally static in the examples (no env/CLI override path).
+Each agent uses both SKILL frontmatter metadata and the short guidance body from each `SKILL.md` file.
+
 ## Notes
 
 - This is a **template/example** and intentionally uses lightweight placeholder logic so you can replace pieces with your real SDK integrations.
