@@ -18,6 +18,7 @@ from beeai_framework.tools.handoff import HandoffTool
 from beeai_framework.tools.think import ThinkTool
 
 from helpers import setup_env
+from skill_registry import build_instruction_block
 
 
 # Log only tool calls
@@ -61,6 +62,8 @@ def main() -> None:
     )
     asyncio.run(provider_agent.check_agent_exists())
     print("\tℹ️", f"{provider_agent.name} initialized")
+
+    skill_instruction_block = build_instruction_block("healthcare")
 
     healthcare_agent = RequirementAgent(
         name="Healthcare Agent",
@@ -123,7 +126,9 @@ def main() -> None:
 
             IMPORTANT: When returning answers about providers, only output providers from `{provider_agent.name}` and only provide insurance information based on the results from `{policy_agent.name}`.
 
-            In your output, put which agent gave you the information!"""
+            In your output, put which agent gave you the information!
+
+            {skill_instruction_block}"""
         ),
     )
 

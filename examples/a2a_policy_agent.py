@@ -6,20 +6,18 @@ from a2a.server.apps import A2AStarletteApplication
 from a2a.server.events import EventQueue
 from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore
-from a2a.types import (
-    AgentCapabilities,
-    AgentCard,
-    AgentSkill,
-)
+from a2a.types import AgentCapabilities, AgentCard, AgentSkill
 from a2a.utils import new_agent_text_message
 
 from helpers import setup_env
 from policy_agent import PolicyAgent
+from skill_registry import build_instruction_block, get_skills
 
 
 class PolicyAgentExecutor(AgentExecutor):
     def __init__(self) -> None:
         self.agent = PolicyAgent()
+        self.skill_instruction_block = build_instruction_block("policy")
 
     async def execute(
         self,
@@ -27,7 +25,8 @@ class PolicyAgentExecutor(AgentExecutor):
         event_queue: EventQueue,
     ) -> None:
         prompt = context.get_user_input()
-        response = self.agent.answer_query(prompt)
+        prompt_with_skills = f"{self.skill_instruction_block}\n\nUser request: {prompt}"
+        response = self.agent.answer_query(prompt_with_skills)
         message = new_agent_text_message(response)
         await event_queue.enqueue_event(message)
 
@@ -45,13 +44,16 @@ def main() -> None:
     PORT = int(os.getenv("POLICY_AGENT_PORT", 9999))
     HOST = os.getenv("AGENT_HOST", "localhost")
 
-    skill = AgentSkill(
-        id="insurance_coverage",
-        name="Insurance coverage",
-        description="Provides information about insurance coverage options and details.",
-        tags=["insurance", "coverage"],
-        examples=["What does my policy cover?", "Are mental health services included?"],
-    )
+    skills = [
+        AgentSkill(
+            id=skill.id,
+            name=skill.name,
+            description=skill.description,
+            tags=list(skill.tags),
+            examples=list(skill.examples),
+        )
+        for skill in get_skills("policy")
+    ]
 
     agent_card = AgentCard(
         name="InsurancePolicyCoverageAgent",
@@ -61,7 +63,7 @@ def main() -> None:
         default_input_modes=["text"],
         default_output_modes=["text"],
         capabilities=AgentCapabilities(streaming=False),
-        skills=[skill],
+        skills=skills,
     )
 
     request_handler = DefaultRequestHandler(
