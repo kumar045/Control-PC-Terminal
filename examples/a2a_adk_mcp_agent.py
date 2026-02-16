@@ -1,118 +1,207 @@
 #!/usr/bin/env python3
-"""A2A + ADK + MCP custom agent template for Control-Terminal.
+"""Single-command launcher for the healthcare A2A demo stack.
 
-This file is intentionally minimal and framework-agnostic so users can see the
-shape of an interactive custom agent process.
+Run this file once to start the policy, research, provider, and healthcare
+agents. The process then stays alive, reading prompts from stdin and writing
+responses to stdout.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime
-from typing import Iterable
+import asyncio
+import os
+import signal
+import socket
+import subprocess
+import sys
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from beeai_framework.adapters.a2a.agents import A2AAgent
+from beeai_framework.memory import UnconstrainedMemory
+from beeai_framework.middleware.trajectory import EventMeta, GlobalTrajectoryMiddleware
+
+from helpers import setup_env
 
 
-@dataclass
-class MCPServer:
-    """Represents one MCP server endpoint the agent can talk to."""
+@dataclass(frozen=True)
+class ManagedAgent:
+    """Metadata needed to run and monitor one agent process."""
 
     name: str
-    url: str
+    script: str
+    port_env: str
 
 
-@dataclass
-class AgentConfig:
-    """Runtime configuration for the custom agent."""
+AGENTS = [
+    ManagedAgent("Policy Agent", "a2a_policy_agent.py", "POLICY_AGENT_PORT"),
+    ManagedAgent("Research Agent", "a2a_research_agent.py", "RESEARCH_AGENT_PORT"),
+    ManagedAgent("Provider Agent", "a2a_provider_agent.py", "PROVIDER_AGENT_PORT"),
+    ManagedAgent(
+        "Healthcare Concierge Agent",
+        "a2a_healthcare_agent.py",
+        "HEALTHCARE_AGENT_PORT",
+    ),
+]
 
-    agent_name: str = "terminal_orchestrator"
-    mcp_servers: list[MCPServer] = field(
-        default_factory=lambda: [
-            MCPServer(name="filesystem", url="http://localhost:3001"),
-            MCPServer(name="docs", url="http://localhost:3002"),
-        ]
-    )
-
-
-class A2AAdapter:
-    """Stub adapter for A2A message ingress/egress."""
-
-    def receive(self, user_text: str) -> dict[str, str]:
-        return {"role": "user", "content": user_text.strip()}
-
-    def send(self, text: str) -> None:
-        print(text, flush=True)
+DEFAULT_PORTS = {
+    "POLICY_AGENT_PORT": 9999,
+    "RESEARCH_AGENT_PORT": 9998,
+    "PROVIDER_AGENT_PORT": 9997,
+    "HEALTHCARE_AGENT_PORT": 9996,
+}
 
 
-class MCPBridge:
-    """Stub MCP bridge.
+class ConciseGlobalTrajectoryMiddleware(GlobalTrajectoryMiddleware):
+    """Keep trajectory logging concise while preserving event prefixes."""
 
-    Replace this with real MCP client calls (tool listing, resource reads, etc.).
-    """
+    def _format_prefix(self, meta: EventMeta) -> str:
+        prefix = super()._format_prefix(meta)
+        return prefix.rstrip(": ")
 
-    def __init__(self, servers: Iterable[MCPServer]) -> None:
-        self.servers = list(servers)
-
-    def summarize_servers(self) -> str:
-        parts = [f"{server.name}={server.url}" for server in self.servers]
-        return ", ".join(parts)
+    def _format_payload(self, value: Any) -> str:
+        return ""
 
 
-class ADKOrchestrator:
-    """Stub ADK orchestrator.
+class DemoStack:
+    """Starts/stops all agents and provides stdin/stdout runtime flow."""
 
-    Replace `run` with your ADK workflow graph/planner.
-    """
+    def __init__(self) -> None:
+        setup_env()
+        self.host = os.getenv("AGENT_HOST", "localhost")
+        self.examples_dir = Path(__file__).resolve().parent
+        self.processes: list[subprocess.Popen[str]] = []
 
-    def __init__(self, config: AgentConfig, mcp: MCPBridge) -> None:
-        self.config = config
-        self.mcp = mcp
+    def _port_for(self, port_env: str) -> int:
+        value = os.getenv(port_env)
+        if value:
+            return int(value)
 
-    def run(self, message: dict[str, str]) -> str:
-        content = message["content"]
-        if content == "/status":
-            return (
-                f"agent={self.config.agent_name} | "
-                f"time={datetime.utcnow().isoformat()}Z | "
-                f"mcp=[{self.mcp.summarize_servers()}]"
+        fallback = DEFAULT_PORTS.get(port_env)
+        if fallback is not None:
+            return fallback
+
+        raise RuntimeError(f"Missing required environment variable: {port_env}")
+
+    def _is_port_open(self, host: str, port: int) -> bool:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.25)
+            return sock.connect_ex((host, port)) == 0
+
+    def _wait_for_port(self, host: str, port: int, timeout_s: float = 45.0) -> None:
+        deadline = time.time() + timeout_s
+        while time.time() < deadline:
+            if self._is_port_open(host, port):
+                return
+            time.sleep(0.25)
+        raise TimeoutError(f"Timed out waiting for {host}:{port} to become ready")
+
+    def start_all(self) -> None:
+        print("Starting all A2A healthcare demo agents...", flush=True)
+        launch_env = os.environ.copy()
+        launch_env.setdefault("AGENT_HOST", self.host)
+        for key, value in DEFAULT_PORTS.items():
+            launch_env.setdefault(key, str(value))
+
+        for agent in AGENTS:
+            port = self._port_for(agent.port_env)
+            proc = subprocess.Popen(
+                ["uv", "run", agent.script],
+                cwd=self.examples_dir,
+                env=launch_env,
+                stdout=None,
+                stderr=None,
+                text=True,
             )
+            self.processes.append(proc)
+            print(f"  • launched {agent.name} on port {port} (pid={proc.pid})", flush=True)
 
-        return (
-            "[A2A→ADK→MCP template]\n"
-            f"received: {content}\n"
-            "next: replace ADKOrchestrator.run() with your real workflow."
+        for agent in AGENTS:
+            port = self._port_for(agent.port_env)
+            self._wait_for_port(self.host, port)
+            print(f"  ✓ {agent.name} is ready at http://{self.host}:{port}", flush=True)
+
+    def stop_all(self) -> None:
+        if not self.processes:
+            return
+
+        print("Shutting down all managed agents...", flush=True)
+        for proc in self.processes:
+            if proc.poll() is None:
+                proc.terminate()
+
+        deadline = time.time() + 8
+        for proc in self.processes:
+            while proc.poll() is None and time.time() < deadline:
+                time.sleep(0.1)
+            if proc.poll() is None:
+                proc.kill()
+
+        self.processes.clear()
+
+    async def _build_healthcare_agent(self) -> A2AAgent:
+        healthcare_port = self._port_for("HEALTHCARE_AGENT_PORT")
+        healthcare_agent = A2AAgent(
+            url=f"http://{self.host}:{healthcare_port}",
+            memory=UnconstrainedMemory(),
         )
+        await healthcare_agent.check_agent_exists()
+        return healthcare_agent
+
+    async def run_stdio_loop(self) -> None:
+        healthcare_agent = await self._build_healthcare_agent()
+        is_tty = sys.stdin.isatty()
+
+        print("\nAll agents are running.", flush=True)
+        if is_tty:
+            print("Enter prompts (type 'exit' or 'quit' to stop).", flush=True)
+
+        while True:
+            try:
+                if is_tty:
+                    prompt = await asyncio.to_thread(input, "you> ")
+                else:
+                    prompt = await asyncio.to_thread(sys.stdin.readline)
+                    if prompt == "":
+                        return
+                user_input = prompt.strip()
+            except EOFError:
+                return
+            except KeyboardInterrupt:
+                if is_tty:
+                    print("", flush=True)
+                    continue
+                return
+
+            if not user_input:
+                continue
+            if user_input.lower() in {"exit", "quit"}:
+                return
+
+            response = await healthcare_agent.run(user_input).middleware(
+                ConciseGlobalTrajectoryMiddleware()
+            )
+            print(response.last_message.text, flush=True)
 
 
 def main() -> None:
-    config = AgentConfig()
-    a2a = A2AAdapter()
-    mcp = MCPBridge(config.mcp_servers)
-    adk = ADKOrchestrator(config=config, mcp=mcp)
+    stack = DemoStack()
 
-    print("Custom agent started (A2A + ADK + MCP template).", flush=True)
-    print("Type '/status' to check configuration, or 'exit' to quit.", flush=True)
+    def _handle_signal(_: int, __: object) -> None:
+        stack.stop_all()
+        sys.exit(0)
 
-    while True:
-        try:
-            user_input = input("agent> ")
-        except EOFError:
-            break
-        except KeyboardInterrupt:
-            print("\nInterrupted. Type 'exit' to quit cleanly.", flush=True)
-            continue
+    signal.signal(signal.SIGTERM, _handle_signal)
+    signal.signal(signal.SIGINT, _handle_signal)
 
-        if user_input.strip().lower() in {"exit", "quit"}:
-            print("Shutting down custom agent.", flush=True)
-            break
-
-        if not user_input.strip():
-            continue
-
-        message = a2a.receive(user_input)
-        response = adk.run(message)
-        a2a.send(response)
+    try:
+        stack.start_all()
+        asyncio.run(stack.run_stdio_loop())
+    finally:
+        stack.stop_all()
 
 
 if __name__ == "__main__":
     main()
-  
