@@ -105,7 +105,14 @@ class DemoStack:
         for key, value in DEFAULT_PORTS.items():
             launch_env.setdefault(key, str(value))
 
-        for agent in AGENTS:
+        healthcare_agent = next(
+            agent for agent in AGENTS if agent.port_env == "HEALTHCARE_AGENT_PORT"
+        )
+        dependency_agents = [
+            agent for agent in AGENTS if agent.port_env != "HEALTHCARE_AGENT_PORT"
+        ]
+
+        for agent in dependency_agents:
             port = self._port_for(agent.port_env)
             proc = subprocess.Popen(
                 ["uv", "run", agent.script],
@@ -118,10 +125,32 @@ class DemoStack:
             self.processes.append(proc)
             print(f"  • launched {agent.name} on port {port} (pid={proc.pid})", flush=True)
 
-        for agent in AGENTS:
+        for agent in dependency_agents:
             port = self._port_for(agent.port_env)
             self._wait_for_port(self.host, port)
             print(f"  ✓ {agent.name} is ready at http://{self.host}:{port}", flush=True)
+
+        healthcare_port = self._port_for(healthcare_agent.port_env)
+        healthcare_proc = subprocess.Popen(
+            ["uv", "run", healthcare_agent.script],
+            cwd=self.examples_dir,
+            env=launch_env,
+            stdout=None,
+            stderr=None,
+            text=True,
+        )
+        self.processes.append(healthcare_proc)
+        print(
+            f"  • launched {healthcare_agent.name} on port {healthcare_port} "
+            f"(pid={healthcare_proc.pid})",
+            flush=True,
+        )
+
+        self._wait_for_port(self.host, healthcare_port)
+        print(
+            f"  ✓ {healthcare_agent.name} is ready at http://{self.host}:{healthcare_port}",
+            flush=True,
+        )
 
     def stop_all(self) -> None:
         if not self.processes:
