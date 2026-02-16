@@ -37,4 +37,3 @@ Now select **preconfigured custom agent** in `control-terminal` and choose `a2a-
 
 - This is a **template/example** and intentionally uses lightweight placeholder logic so you can replace pieces with your real SDK integrations.
 - Update MCP server list, ADK workflow, and A2A transport based on your stack.
-- 
