@@ -147,7 +147,7 @@ Control-Terminal now supports running prompts from Telegram directly into the se
 
 If a `control-terminal` tmux session already exists, Control-Terminal asks whether to reuse it or restart it with the newly selected agent. Restart is the default so Telegram prompts target the agent you selected in this run.
 
-### Requirements for custom agent scripts (for example `my_agent.py`)
+### Requirements for custom agent scripts (for example `a2a_adk_mcp_agent.py`)
 
 Your custom agent does **not** need to implement Telegram API handling. Control-Terminal already bridges Telegram messages to your running tmux session.
 
