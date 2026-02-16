@@ -13,7 +13,9 @@ echo "Installing dependencies..."
 # ----------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-./}")" && pwd 2>/dev/null || true)"
 CONTROL_TERMINAL_SRC="${SCRIPT_DIR}/control-terminal"
+CUSTOM_AGENTS_SRC="${SCRIPT_DIR}/custom-agents.conf"
 CONTROL_TERMINAL_TMP=""
+CUSTOM_AGENTS_TMP=""
 
 # ----------------------------------------
 # Install tmux
@@ -101,6 +103,34 @@ sudo chmod 755 /usr/local/bin/control-terminal
 
 if [ -n "$CONTROL_TERMINAL_TMP" ] && [ -f "$CONTROL_TERMINAL_TMP" ]; then
   rm -f "$CONTROL_TERMINAL_TMP"
+fi
+
+# ----------------------------------------
+# Install preconfigured custom-agent template
+# ----------------------------------------
+mkdir -p "$HOME/.control-terminal"
+
+if [ ! -f "$CUSTOM_AGENTS_SRC" ]; then
+  CUSTOM_AGENTS_TMP="$(mktemp)"
+  curl -fsSL \
+    "https://raw.githubusercontent.com/kumar045/Control-PC-Terminal/main/custom-agents.conf" \
+    -o "$CUSTOM_AGENTS_TMP" || true
+  if [ -s "$CUSTOM_AGENTS_TMP" ]; then
+    CUSTOM_AGENTS_SRC="$CUSTOM_AGENTS_TMP"
+  fi
+fi
+
+if [ -f "$CUSTOM_AGENTS_SRC" ]; then
+  if [ ! -f "$HOME/.control-terminal/custom-agents.conf" ]; then
+    cp "$CUSTOM_AGENTS_SRC" "$HOME/.control-terminal/custom-agents.conf"
+    echo "Installed starter custom agents at ~/.control-terminal/custom-agents.conf"
+  else
+    echo "Keeping existing ~/.control-terminal/custom-agents.conf"
+  fi
+fi
+
+if [ -n "$CUSTOM_AGENTS_TMP" ] && [ -f "$CUSTOM_AGENTS_TMP" ]; then
+  rm -f "$CUSTOM_AGENTS_TMP"
 fi
 
 echo
