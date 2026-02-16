@@ -18,6 +18,77 @@ TELEGRAM_STREAM_PID=""
 TELEGRAM_STREAM_CHAT_ID=""
 TELEGRAM_AUTO_WATCH_SECONDS="2"
 AGENT_RUNNER_SCRIPT=""
+CUSTOM_AGENTS_FILE="${CONTROL_TERMINAL_AGENTS_FILE:-$HOME/.control-terminal/custom-agents.conf}"
+
+load_preconfigured_agents() {
+  local source_file line name cmd
+
+  PRECONFIG_AGENT_NAMES=()
+  PRECONFIG_AGENT_CMDS=()
+
+  source_file="$CUSTOM_AGENTS_FILE"
+  if [ ! -f "$source_file" ] && [ -f "./custom-agents.conf" ]; then
+    source_file="./custom-agents.conf"
+  fi
+
+  if [ ! -f "$source_file" ]; then
+    return 0
+  fi
+
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%$'\r'}"
+    case "$line" in
+      ''|\#*)
+        continue
+        ;;
+    esac
+
+    name="${line%%|*}"
+    cmd="${line#*|}"
+
+    if [ -z "$name" ] || [ -z "$cmd" ] || [ "$name" = "$cmd" ]; then
+      continue
+    fi
+
+    PRECONFIG_AGENT_NAMES+=("$name")
+    PRECONFIG_AGENT_CMDS+=("$cmd")
+  done < "$source_file"
+}
+
+prompt_preconfigured_agent() {
+  local idx choice cmd_bin selected_cmd selected_name
+
+  if [ "${#PRECONFIG_AGENT_NAMES[@]}" -eq 0 ]; then
+    echo "⚠️ No preconfigured agents found in $CUSTOM_AGENTS_FILE or ./custom-agents.conf"
+    return 1
+  fi
+
+  echo ""
+  echo "Choose a preconfigured custom agent:"
+  for idx in "${!PRECONFIG_AGENT_NAMES[@]}"; do
+    printf "%d) %s -> %s\n" "$((idx + 1))" "${PRECONFIG_AGENT_NAMES[$idx]}" "${PRECONFIG_AGENT_CMDS[$idx]}"
+  done
+
+  read -r -p "Enter choice [1-${#PRECONFIG_AGENT_NAMES[@]}]: " choice
+
+  if [[ ! "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#PRECONFIG_AGENT_NAMES[@]}" ]; then
+    echo "❌ Invalid preconfigured agent choice"
+    return 1
+  fi
+
+  selected_name="${PRECONFIG_AGENT_NAMES[$((choice - 1))]}"
+  selected_cmd="${PRECONFIG_AGENT_CMDS[$((choice - 1))]}"
+  cmd_bin="${selected_cmd%% *}"
+
+  if ! command -v "$cmd_bin" >/dev/null 2>&1; then
+    echo "❌ Command '$cmd_bin' (from agent '$selected_name') not found in PATH"
+    return 1
+  fi
+
+  AGENT_CMD="$selected_cmd"
+  echo "✅ Selected preconfigured agent: $selected_name"
+  return 0
+}
 
 create_agent_runner_script() {
   local escaped_agent_cmd
@@ -575,8 +646,11 @@ echo "Choose which agent to run:"
 echo "1) codex   ${CODEX_BIN:+($CODEX_BIN)}${CODEX_BIN:- (not installed)}"
 echo "2) claude  ${CLAUDE_BIN:+($CLAUDE_BIN)}${CLAUDE_BIN:- (not installed)}"
 echo "3) other"
+echo "4) preconfigured custom agent"
 
-read -r -p "Enter choice [1-3]: " choice
+load_preconfigured_agents
+
+read -r -p "Enter choice [1-4]: " choice
 
 case "$choice" in
   1)
@@ -595,8 +669,14 @@ case "$choice" in
     ;;
   3)
     read -r -p "Enter custom agent command: " AGENT_CMD
-    if ! command -v "$AGENT_CMD" >/dev/null 2>&1; then
-      echo "❌ Command '$AGENT_CMD' not found"
+    AGENT_BIN="${AGENT_CMD%% *}"
+    if ! command -v "$AGENT_BIN" >/dev/null 2>&1; then
+      echo "❌ Command '$AGENT_BIN' not found"
+      exit 1
+    fi
+    ;;
+  4)
+    if ! prompt_preconfigured_agent; then
       exit 1
     fi
     ;;

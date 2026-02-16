@@ -72,6 +72,7 @@ You will be prompted to choose an agent:
 1) codex
 2) claude
 3) other
+4) preconfigured custom agent
 
 After selecting, Control-Terminal will:
 
@@ -89,6 +90,28 @@ If you enable credentials, `ttyd` will require HTTP Basic Auth before opening th
 If `ttyd` is not installed, Control-Terminal now attempts to install the latest ttyd release automatically (Linux only).
 
 If you opt-in to public access, Control-Terminal downloads `cloudflared` automatically (Linux only), starts a Cloudflare Tunnel, and prints a `trycloudflare.com` URL that you can share.
+
+### Preconfigured custom agents
+
+Control-Terminal now supports a separate preconfigured agent file so you can select reusable custom agents from a menu instead of typing commands each time.
+
+- Default path: `~/.control-terminal/custom-agents.conf`
+- Repo fallback: `./custom-agents.conf` (used when the home file does not exist)
+- Override path with env var: `CONTROL_TERMINAL_AGENTS_FILE=/path/to/file control-terminal`
+
+Config format:
+
+```
+name|command
+```
+
+Example:
+
+```
+a2a-adk-mcp|adk run --enable-a2a --enable-mcp --agent terminal_orchestrator
+```
+
+This repository includes a starter `custom-agents.conf` that already contains an **A2A + ADK + MCP** preset entry you can customize for your environment.
 
 ## 💡 Telegram remote control (implemented)
 
