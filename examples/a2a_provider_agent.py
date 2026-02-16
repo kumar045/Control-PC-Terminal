@@ -14,6 +14,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph_a2a_server import A2AServer
 
 from helpers import setup_env
+from skill_registry import build_instruction_block, get_skills
 
 
 def main() -> None:
@@ -32,6 +33,8 @@ def main() -> None:
             )
         }
     )
+    skill_instruction_block = build_instruction_block("provider")
+
     agent: CompiledStateGraph = create_agent(
         model=ChatLiteLLM(
             model="gemini/gemini-3-flash-preview",
@@ -41,7 +44,10 @@ def main() -> None:
         ),
         tools=asyncio.run(mcp_client.get_tools()),
         name="HealthcareProviderAgent",
-        system_prompt="Find and list healthcare providers using the find_healthcare_providers MCP Tool.",
+        system_prompt=(
+            "Find and list healthcare providers using the find_healthcare_providers MCP Tool.\n\n"
+            f"{skill_instruction_block}"
+        ),
     )
 
     agent_card = AgentCard(
@@ -54,15 +60,13 @@ def main() -> None:
         capabilities=AgentCapabilities(streaming=False),
         skills=[
             AgentSkill(
-                id="find_healthcare_providers",
-                name="Find Healthcare Providers",
-                description="Finds providers based on location/specialty.",
-                tags=["healthcare", "providers", "doctor", "psychiatrist"],
-                examples=[
-                    "Are there any Psychiatrists near me in Boston, MA?",
-                    "Find a pediatrician in Springfield, IL.",
-                ],
+                id=skill.id,
+                name=skill.name,
+                description=skill.description,
+                tags=list(skill.tags),
+                examples=list(skill.examples),
             )
+            for skill in get_skills("provider")
         ],
     )
 
