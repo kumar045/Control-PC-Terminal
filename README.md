@@ -8,6 +8,13 @@
 
 Unlike standard remote tools, this is built for **AI Agent persistence**. Your agents run inside `tmux` sessions, so they keep working even if your internet drops. You can interact with them via a **Secure Web Terminal** or a **Telegram Bot** that streams logs and sends commands in real-time.
 
+
+* **🚀 Ready-to-Run:** Comes with **preconfigured AI agents** (using A2A, ADK, MCP, & Skills) so you can test them instantly!
+
+* **🌐 Language Agnostic:** Build your own agents using **ANY** framework or language. Use the preconfigured ones as a blueprint.
+
+* **🔓 Total Freedom:** Unlike **ClawdBot** (which locks you into *their* plugins), if it runs in a terminal, it works here!
+
 ---
 
 ## ✨ Key Features
